@@ -1,11 +1,13 @@
 import io
+import os
 import zipfile
 
 import pdfplumber
 from flask import Flask, jsonify, render_template, request, send_file
 from pypdf import PdfReader, PdfWriter
 
-app = Flask(__name__, template_folder="../templates")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"))
 
 
 def extract_page_data(plumber_page, page_index: int) -> dict:
