@@ -115,6 +115,12 @@ def download():
         return jsonify(error=str(e)), 500
 
 
+@app.errorhandler(404)
+def not_found(e):
+    from flask import request
+    return jsonify(error=f"404: path={request.path!r} method={request.method}"), 404
+
+
 @app.errorhandler(413)
 def too_large(e):
     return jsonify(error="File too large for this plan. Max ~4.5 MB on Vercel Hobby; upgrade to Pro for larger files."), 413
