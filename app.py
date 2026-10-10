@@ -34,18 +34,20 @@ def extract_page_data(plumber_page, page_index: int) -> dict:
             continue
 
         regn_col = next((j for j, c in enumerate(header_row) if c and "REGN" in c), None)
+        roll_col = next((j for j, c in enumerate(header_row) if c and "ROLL" in c), None)
         name_col = next((j for j, c in enumerate(header_row) if c and "NAME" in c), None)
 
-        if regn_col is None:
+        id_col = regn_col if regn_col is not None else roll_col
+        if id_col is None:
             continue
 
         for row in table[header_idx + 1:]:
-            if row and regn_col < len(row) and row[regn_col] and row[regn_col].strip():
-                regn_no = row[regn_col].strip()
+            if row and id_col < len(row) and row[id_col] and row[id_col].strip():
+                file_id = row[id_col].strip()
                 name = ""
                 if name_col is not None and name_col < len(row) and row[name_col]:
                     name = " ".join((row[name_col] or "").split())
-                return {"regn_no": regn_no, "name": name or "Unknown"}
+                return {"regn_no": file_id, "name": name or "Unknown"}
 
     return {"regn_no": f"PAGE_{page_index + 1}", "name": "Unknown"}
 
