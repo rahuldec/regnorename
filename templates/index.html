@@ -433,89 +433,72 @@
     progressBar.style.width = pct + '%';
   }
 
-  let uploadToken = null;
-
-  // Upload with real progress, then show preview
-  btnPreview.addEventListener('click', () => {
-    if (!selectedFile) return;
-    btnPreview.disabled = true;
-    btnDownload.disabled = true;
-    uploadToken = null;
-    resultsCard.hidden = true;
-    resultsBody.innerHTML = '';
-
+  function xhrUpload(endpoint, onDone) {
     const fd = new FormData();
     fd.append('pdf', selectedFile);
-
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/upload');
+    xhr.open('POST', endpoint);
 
     xhr.upload.addEventListener('progress', e => {
       if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 70);
+        const pct = Math.round((e.loaded / e.total) * 75);
         setProgress(pct);
         const mb = (e.loaded / 1048576).toFixed(1);
         const total = (e.total / 1048576).toFixed(1);
         setStatus(`Uploading… ${mb} / ${total} MB`);
       }
     });
-
     xhr.upload.addEventListener('load', () => {
-      setProgress(75);
-      setStatus('Extracting REGN. NOs from all pages…');
+      setProgress(80);
+      setStatus('Processing pages…');
     });
+    xhr.addEventListener('error', () => {
+      setStatus('Upload failed — check your connection.', false);
+      spinner.hidden = true;
+    });
+    xhr.addEventListener('load', () => onDone(xhr));
+    xhr.send(fd);
+  }
 
-    xhr.addEventListener('load', () => {
+  // Preview
+  btnPreview.addEventListener('click', () => {
+    if (!selectedFile) return;
+    btnPreview.disabled = true;
+    btnDownload.disabled = true;
+    resultsCard.hidden = true;
+    resultsBody.innerHTML = '';
+    setStatus('Starting upload…');
+    setProgress(0);
+
+    xhrUpload('/preview', xhr => {
       let data;
-      try {
-        data = JSON.parse(xhr.responseText);
-      } catch {
-        setStatus(`Error: Server returned an unexpected response (HTTP ${xhr.status}).`, false);
-        spinner.hidden = true;
-        btnPreview.disabled = false;
-        return;
+      try { data = JSON.parse(xhr.responseText); } catch {
+        setStatus(`Error: unexpected server response (HTTP ${xhr.status}).`, false);
+        spinner.hidden = true; btnPreview.disabled = false; return;
       }
       if (xhr.status !== 200) {
         setStatus('Error: ' + (data.error || xhr.statusText), false);
-        spinner.hidden = true;
-        btnPreview.disabled = false;
-        return;
+        spinner.hidden = true; btnPreview.disabled = false; return;
       }
-      uploadToken = data.token;
-      renderResults(data.pages);
+      renderResults(data);
       setProgress(100);
-      setStatus(`Found ${data.pages.length} student pages — ready to download.`, false);
+      setStatus(`Found ${data.length} student pages — ready to download.`, false);
       spinner.hidden = true;
       btnDownload.disabled = false;
       btnPreview.disabled = false;
     });
-
-    xhr.addEventListener('error', () => {
-      setStatus('Upload failed — check your connection.', false);
-      spinner.hidden = true;
-      btnPreview.disabled = false;
-    });
-
-    setStatus('Starting upload…');
-    setProgress(0);
-    xhr.send(fd);
   });
 
   function renderResults(rows) {
     resultsBody.innerHTML = '';
-    const seen = {};
     rows.forEach(r => {
       const isFallback = r.regn_no.startsWith('PAGE_');
-      seen[r.regn_no] = (seen[r.regn_no] || 0) + 1;
-      const filename = seen[r.regn_no] > 1
-        ? `${r.regn_no}_${seen[r.regn_no]}.pdf`
-        : `${r.regn_no}.pdf`;
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="td-page">${r.page}</td>
         <td class="td-regn">${r.regn_no}</td>
         <td class="td-name">${r.name}</td>
-        <td class="td-file">${filename}</td>
+        <td class="td-file">${r.filename}</td>
         <td>${isFallback
           ? '<span class="pill-warn">No REGN found</span>'
           : '<span class="pill-ok">Ready</span>'}</td>
@@ -526,43 +509,45 @@
     resultsCard.hidden = false;
   }
 
-  // Download — uses token, no second upload
-  btnDownload.addEventListener('click', async () => {
-    if (!uploadToken) return;
+  // Download — re-uploads file to /download, gets ZIP back
+  btnDownload.addEventListener('click', () => {
+    if (!selectedFile) return;
     btnDownload.disabled = true;
-    setStatus('Building ZIP…');
-    setProgress(50);
+    setStatus('Uploading for ZIP…');
+    setProgress(0);
 
-    try {
-      const res = await fetch(`/download/${uploadToken}`);
-      if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try { const d = await res.json(); msg = d.error || msg; } catch {}
-        throw new Error(msg);
+    xhrUpload('/download', xhr => {
+      if (xhr.status !== 200) {
+        let msg = `HTTP ${xhr.status}`;
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+        setStatus('Error: ' + msg, false);
+        spinner.hidden = true; btnDownload.disabled = false; return;
       }
-      const blob = await res.blob();
       setProgress(100);
       setStatus('ZIP ready — downloading…', false);
       spinner.hidden = true;
 
+      const blob = new Blob([xhr.response], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = 'admit_cards.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = 'admit_cards.zip';
+      document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-
-      // Token consumed — re-upload needed for another download
-      uploadToken = null;
-      btnDownload.disabled = true;
-    } catch (err) {
-      setStatus('Error: ' + err.message, false);
-      spinner.hidden = true;
       btnDownload.disabled = false;
-    }
+    });
   });
+
+  // Set XHR response type for binary download
+  const _origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    this._url = url;
+    return _origOpen.call(this, method, url, ...rest);
+  };
+  const _origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function(body) {
+    if (this._url === '/download') this.responseType = 'arraybuffer';
+    return _origSend.call(this, body);
+  };
 
   // Reset
   btnReset.addEventListener('click', () => {
