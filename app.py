@@ -146,5 +146,15 @@ def download(token: str):
     )
 
 
+@app.errorhandler(413)
+def too_large(e):
+    return jsonify(error="File too large — maximum upload size is 500 MB."), 413
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    return jsonify(error=str(e)), 500
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5050)
+    app.run(debug=False, port=5050)

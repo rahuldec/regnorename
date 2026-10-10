@@ -466,18 +466,21 @@
     });
 
     xhr.addEventListener('load', () => {
-      if (xhr.status !== 200) {
-        try {
-          const d = JSON.parse(xhr.responseText);
-          setStatus('Error: ' + (d.error || xhr.statusText), false);
-        } catch {
-          setStatus('Error: ' + xhr.statusText, false);
-        }
+      let data;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        setStatus(`Error: Server returned an unexpected response (HTTP ${xhr.status}).`, false);
         spinner.hidden = true;
         btnPreview.disabled = false;
         return;
       }
-      const data = JSON.parse(xhr.responseText);
+      if (xhr.status !== 200) {
+        setStatus('Error: ' + (data.error || xhr.statusText), false);
+        spinner.hidden = true;
+        btnPreview.disabled = false;
+        return;
+      }
       uploadToken = data.token;
       renderResults(data.pages);
       setProgress(100);
@@ -533,8 +536,9 @@
     try {
       const res = await fetch(`/download/${uploadToken}`);
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Server error');
+        let msg = `HTTP ${res.status}`;
+        try { const d = await res.json(); msg = d.error || msg; } catch {}
+        throw new Error(msg);
       }
       const blob = await res.blob();
       setProgress(100);
