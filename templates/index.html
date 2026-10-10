@@ -433,45 +433,86 @@
     progressBar.style.width = pct + '%';
   }
 
-  // Preview
-  btnPreview.addEventListener('click', async () => {
+  let uploadToken = null;
+
+  // Upload with real progress, then show preview
+  btnPreview.addEventListener('click', () => {
     if (!selectedFile) return;
     btnPreview.disabled = true;
     btnDownload.disabled = true;
-    setStatus('Reading PDF and extracting REGN. NOs…');
-    setProgress(30);
+    uploadToken = null;
+    resultsCard.hidden = true;
+    resultsBody.innerHTML = '';
 
     const fd = new FormData();
     fd.append('pdf', selectedFile);
 
-    try {
-      const res = await fetch('/preview', { method: 'POST', body: fd });
-      setProgress(80);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      renderResults(data);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload');
+
+    xhr.upload.addEventListener('progress', e => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 70);
+        setProgress(pct);
+        const mb = (e.loaded / 1048576).toFixed(1);
+        const total = (e.total / 1048576).toFixed(1);
+        setStatus(`Uploading… ${mb} / ${total} MB`);
+      }
+    });
+
+    xhr.upload.addEventListener('load', () => {
+      setProgress(75);
+      setStatus('Extracting REGN. NOs from all pages…');
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status !== 200) {
+        try {
+          const d = JSON.parse(xhr.responseText);
+          setStatus('Error: ' + (d.error || xhr.statusText), false);
+        } catch {
+          setStatus('Error: ' + xhr.statusText, false);
+        }
+        spinner.hidden = true;
+        btnPreview.disabled = false;
+        return;
+      }
+      const data = JSON.parse(xhr.responseText);
+      uploadToken = data.token;
+      renderResults(data.pages);
       setProgress(100);
-      setStatus(`Found ${data.length} student pages.`, false);
+      setStatus(`Found ${data.pages.length} student pages — ready to download.`, false);
       spinner.hidden = true;
       btnDownload.disabled = false;
-    } catch (err) {
-      setStatus('Error: ' + err.message, false);
-      spinner.hidden = true;
-    } finally {
       btnPreview.disabled = false;
-    }
+    });
+
+    xhr.addEventListener('error', () => {
+      setStatus('Upload failed — check your connection.', false);
+      spinner.hidden = true;
+      btnPreview.disabled = false;
+    });
+
+    setStatus('Starting upload…');
+    setProgress(0);
+    xhr.send(fd);
   });
 
   function renderResults(rows) {
     resultsBody.innerHTML = '';
+    const seen = {};
     rows.forEach(r => {
       const isFallback = r.regn_no.startsWith('PAGE_');
+      seen[r.regn_no] = (seen[r.regn_no] || 0) + 1;
+      const filename = seen[r.regn_no] > 1
+        ? `${r.regn_no}_${seen[r.regn_no]}.pdf`
+        : `${r.regn_no}.pdf`;
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="td-page">${r.page}</td>
         <td class="td-regn">${r.regn_no}</td>
         <td class="td-name">${r.name}</td>
-        <td class="td-file">${r.regn_no}.pdf</td>
+        <td class="td-file">${filename}</td>
         <td>${isFallback
           ? '<span class="pill-warn">No REGN found</span>'
           : '<span class="pill-ok">Ready</span>'}</td>
@@ -482,21 +523,17 @@
     resultsCard.hidden = false;
   }
 
-  // Download
+  // Download — uses token, no second upload
   btnDownload.addEventListener('click', async () => {
-    if (!selectedFile) return;
+    if (!uploadToken) return;
     btnDownload.disabled = true;
-    setStatus('Splitting pages and building ZIP…');
-    setProgress(20);
-
-    const fd = new FormData();
-    fd.append('pdf', selectedFile);
+    setStatus('Building ZIP…');
+    setProgress(50);
 
     try {
-      const res = await fetch('/download', { method: 'POST', body: fd });
-      setProgress(90);
+      const res = await fetch(`/download/${uploadToken}`);
       if (!res.ok) {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         throw new Error(d.error || 'Server error');
       }
       const blob = await res.blob();
@@ -512,10 +549,13 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+
+      // Token consumed — re-upload needed for another download
+      uploadToken = null;
+      btnDownload.disabled = true;
     } catch (err) {
       setStatus('Error: ' + err.message, false);
       spinner.hidden = true;
-    } finally {
       btnDownload.disabled = false;
     }
   });

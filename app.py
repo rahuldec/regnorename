@@ -1,4 +1,7 @@
 import io
+import os
+import tempfile
+import uuid
 import zipfile
 
 import pdfplumber
@@ -6,13 +9,16 @@ from flask import Flask, jsonify, render_template, request, send_file
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
+
+# In-memory map of token → temp file path; cleaned up after download
+_uploads: dict[str, str] = {}
 
 
 def extract_page_data(plumber_page, page_index: int) -> dict:
     """
-    Extract REGN. NO. and NAME by finding the 'REGN. NO.' column header
-    in the page table — works regardless of what the actual value looks like.
+    Find the column whose header contains 'REGN' and read whatever value is
+    there — no hardcoded pattern, works for any REGN. NO. format.
     """
     tables = plumber_page.extract_tables()
     for table in tables:
@@ -33,7 +39,7 @@ def extract_page_data(plumber_page, page_index: int) -> dict:
         if regn_col is None:
             continue
 
-        for row in table[header_idx + 1 :]:
+        for row in table[header_idx + 1:]:
             if row and regn_col < len(row) and row[regn_col] and row[regn_col].strip():
                 regn_no = row[regn_col].strip()
                 name = ""
@@ -44,68 +50,92 @@ def extract_page_data(plumber_page, page_index: int) -> dict:
     return {"regn_no": f"PAGE_{page_index + 1}", "name": "Unknown"}
 
 
+def _scan_pdf(path: str) -> list[dict]:
+    """Return preview rows for all non-blank pages."""
+    results = []
+    with pdfplumber.open(path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            if not (page.extract_text() or "").strip():
+                continue
+            data = extract_page_data(page, i)
+            data["page"] = i + 1
+            results.append(data)
+    return results
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-@app.route("/preview", methods=["POST"])
-def preview():
-    """Return a JSON list of {page, regn_no, name} for display before download."""
+@app.route("/upload", methods=["POST"])
+def upload():
+    """
+    Accept the PDF once, save to a temp file, return a token + preview rows.
+    The client uses the token for /download — no second upload needed.
+    """
     if "pdf" not in request.files:
         return jsonify(error="No file uploaded"), 400
 
-    pdf_bytes = request.files["pdf"].read()
-    results = []
-
+    f = request.files["pdf"]
+    fd, path = tempfile.mkstemp(suffix=".pdf")
     try:
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for i, page in enumerate(pdf.pages):
-                text = page.extract_text() or ""
-                if not text.strip():
-                    continue
-                data = extract_page_data(page, i)
-                data["page"] = i + 1
-                results.append(data)
+        with os.fdopen(fd, "wb") as fp:
+            f.save(fp)
+
+        rows = _scan_pdf(path)
+        token = str(uuid.uuid4())
+        _uploads[token] = path
+        return jsonify(token=token, pages=rows)
     except Exception as e:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
         return jsonify(error=str(e)), 500
 
-    return jsonify(results)
 
+@app.route("/download/<token>")
+def download(token: str):
+    """Build and return a ZIP of per-page PDFs named by REGN. NO."""
+    path = _uploads.get(token)
+    if not path or not os.path.exists(path):
+        return jsonify(error="Session expired — please re-upload the PDF."), 404
 
-@app.route("/download", methods=["POST"])
-def download():
-    """Split PDF, rename each page by REGN. NO., return ZIP."""
-    if "pdf" not in request.files:
-        return jsonify(error="No file uploaded"), 400
-
-    pdf_bytes = request.files["pdf"].read()
     zip_buf = io.BytesIO()
-    count = 0
-
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf, zipfile.ZipFile(
+        reader = PdfReader(path)
+        with pdfplumber.open(path) as pdf, zipfile.ZipFile(
             zip_buf, "w", zipfile.ZIP_DEFLATED
         ) as zf:
+            seen: dict[str, int] = {}
             for i, page in enumerate(pdf.pages):
-                text = page.extract_text() or ""
-                if not text.strip():
+                if not (page.extract_text() or "").strip():
                     continue
-
                 data = extract_page_data(page, i)
-                filename = f"{data['regn_no']}.pdf"
+                base = data["regn_no"]
+                # Avoid collisions if same REGN appears more than once
+                if base in seen:
+                    seen[base] += 1
+                    filename = f"{base}_{seen[base]}.pdf"
+                else:
+                    seen[base] = 1
+                    filename = f"{base}.pdf"
 
                 writer = PdfWriter()
                 writer.add_page(reader.pages[i])
                 page_buf = io.BytesIO()
                 writer.write(page_buf)
                 zf.writestr(filename, page_buf.getvalue())
-                count += 1
-
     except Exception as e:
         return jsonify(error=str(e)), 500
+    finally:
+        # Clean up temp file after download
+        try:
+            os.unlink(path)
+            _uploads.pop(token, None)
+        except OSError:
+            pass
 
     zip_buf.seek(0)
     return send_file(
