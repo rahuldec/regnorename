@@ -11,6 +11,7 @@ app = Flask(__name__)
 
 
 @app.route("/api/download", methods=["POST"])
+@app.route("/", methods=["POST"])
 def download():
     if "pdf" not in request.files:
         return jsonify(error="No file uploaded"), 400

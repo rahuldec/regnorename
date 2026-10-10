@@ -10,6 +10,7 @@ app = Flask(__name__)
 
 
 @app.route("/api/preview", methods=["POST"])
+@app.route("/", methods=["POST"])
 def preview():
     if "pdf" not in request.files:
         return jsonify(error="No file uploaded"), 400
