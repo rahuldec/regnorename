@@ -1,33 +1,30 @@
-import io
+import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from flask import Flask, jsonify, request, send_file
 from _lib import process_pdf
 
-app = Flask(__name__)
 
-
-@app.route("/api/download", methods=["POST"])
-@app.route("/", methods=["POST"])
-def download():
-    if "pdf" not in request.files:
-        return jsonify(error="No file uploaded"), 400
+def app(environ, start_response):
+    if environ.get("REQUEST_METHOD") != "POST":
+        start_response("405 Method Not Allowed", [("Content-Type", "application/json")])
+        return [b'{"error":"Method not allowed"}']
     try:
-        pdf_bytes = request.files["pdf"].read()
+        from werkzeug.wrappers import Request
+        req = Request(environ)
+        if "pdf" not in req.files:
+            start_response("400 Bad Request", [("Content-Type", "application/json")])
+            return [b'{"error":"No file uploaded"}']
+        pdf_bytes = req.files["pdf"].read()
         _, zip_bytes = process_pdf(pdf_bytes)
-        return send_file(
-            io.BytesIO(zip_bytes),
-            mimetype="application/zip",
-            as_attachment=True,
-            download_name="admit_cards.zip",
-        )
+        start_response("200 OK", [
+            ("Content-Type", "application/zip"),
+            ("Content-Disposition", 'attachment; filename="admit_cards.zip"'),
+            ("Content-Length", str(len(zip_bytes))),
+        ])
+        return [zip_bytes]
     except Exception as e:
-        return jsonify(error=str(e)), 500
-
-
-@app.errorhandler(413)
-def too_large(e):
-    return jsonify(error="File too large. Max ~4.5 MB on Vercel Hobby."), 413
+        body = json.dumps({"error": str(e)}).encode()
+        start_response("500 Internal Server Error", [("Content-Type", "application/json")])
+        return [body]
