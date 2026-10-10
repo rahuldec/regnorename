@@ -43,7 +43,7 @@ def extract_page_data(plumber_page, page_index: int) -> dict:
     return {"regn_no": f"PAGE_{page_index + 1}", "name": "Unknown"}
 
 
-def _process_pdf(pdf_bytes: bytes) -> tuple[list[dict], bytes]:
+def _process_pdf(pdf_bytes: bytes):
     """Return (preview_rows, zip_bytes) from raw PDF bytes."""
     rows = []
     zip_buf = io.BytesIO()
