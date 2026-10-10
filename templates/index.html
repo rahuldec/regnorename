@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admit Card Splitter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f0f2f7;
+    --surface: #ffffff;
+    --surface-2: #f7f8fc;
+    --border: #e2e6f0;
+    --text: #111827;
+    --text-2: #6b7280;
+    --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --accent-hover: #1d4ed8;
+    --success: #16a34a;
+    --success-bg: #f0fdf4;
+    --warn: #d97706;
+    --warn-bg: #fffbeb;
+    --danger: #dc2626;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-2: #13151e;
+      --border: #2a2d3e;
+      --text: #f1f5f9;
+      --text-2: #8892a4;
+      --accent: #3b82f6;
+      --accent-light: #1e2a45;
+      --accent-hover: #60a5fa;
+      --success: #22c55e;
+      --success-bg: #0d2218;
+      --warn: #f59e0b;
+      --warn-bg: #1f1a0e;
+      --danger: #ef4444;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface-2: #13151e;
+    --border: #2a2d3e;
+    --text: #f1f5f9;
+    --text-2: #8892a4;
+    --accent: #3b82f6;
+    --accent-light: #1e2a45;
+    --accent-hover: #60a5fa;
+    --success: #22c55e;
+    --success-bg: #0d2218;
+    --warn: #f59e0b;
+    --warn-bg: #1f1a0e;
+    --danger: #ef4444;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  header {
+    text-align: center;
+  }
+  header .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  header h1 {
+    font-size: clamp(22px, 4vw, 30px);
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  header p {
+    margin-top: 8px;
+    font-size: 14px;
+    color: var(--text-2);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  /* Drop zone */
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 48px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    text-align: center;
+  }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  #drop-zone svg { opacity: .45; }
+  #drop-zone .label {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  #drop-zone .sublabel {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  #drop-zone .file-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 500;
+    background: var(--accent-light);
+    padding: 4px 10px;
+    border-radius: 6px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #file-input { display: none; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: background .15s, opacity .15s;
+    text-decoration: none;
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-success {
+    background: var(--success);
+    color: #fff;
+  }
+  .btn-success:hover:not(:disabled) { background: #15803d; }
+  .btn-ghost {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--border); }
+
+  .actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  /* Progress bar */
+  .progress-wrap {
+    height: 4px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 99px;
+    transition: width .3s;
+    width: 0%;
+  }
+
+  /* Status message */
+  .status-msg {
+    font-size: 13px;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Results table */
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .results-header h2 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .badge {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 99px;
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+  tbody td {
+    padding: 10px 12px;
+    vertical-align: middle;
+  }
+  .td-page {
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+  }
+  .td-regn {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .td-name { font-weight: 500; }
+  .td-file {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  .pill-ok {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: var(--success-bg);
+    color: var(--success);
+  }
+  .pill-warn {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="eyebrow">MVN University · Exam Portal</div>
+    <h1>Admit Card Splitter</h1>
+    <p>Upload a multi-student PDF — each page is split and saved as <strong>REGN. NO..pdf</strong></p>
+  </header>
+
+  <!-- Upload card -->
+  <div class="card">
+    <div id="drop-zone" role="button" tabindex="0" aria-label="Upload PDF">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <polyline points="9 15 12 12 15 15"/>
+      </svg>
+      <span class="label" id="drop-label">Drop PDF here or click to browse</span>
+      <span class="sublabel" id="drop-sub">Supports any multi-page admit card PDF</span>
+      <span class="file-name" id="file-name-display" hidden></span>
+    </div>
+    <input type="file" id="file-input" accept=".pdf">
+
+    <div style="margin-top:16px; display:flex; flex-direction:column; gap:12px;">
+      <div id="progress-section" hidden>
+        <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+        <div class="status-msg" style="margin-top:8px;">
+          <span class="spinner" id="spinner"></span>
+          <span id="status-text">Processing…</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="btn-preview" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          Preview
+        </button>
+        <button class="btn btn-success" id="btn-download" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download ZIP
+        </button>
+        <button class="btn btn-ghost" id="btn-reset" hidden>Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results card -->
+  <div class="card" id="results-card" hidden>
+    <div class="results-header">
+      <h2>Extracted Students</h2>
+      <span class="badge" id="count-badge">0 pages</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Page</th>
+            <th>REGN. NO.</th>
+            <th>Name</th>
+            <th>Output File</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const dropZone      = document.getElementById('drop-zone');
+  const fileInput     = document.getElementById('file-input');
+  const dropLabel     = document.getElementById('drop-label');
+  const dropSub       = document.getElementById('drop-sub');
+  const fileNameDisp  = document.getElementById('file-name-display');
+  const btnPreview    = document.getElementById('btn-preview');
+  const btnDownload   = document.getElementById('btn-download');
+  const btnReset      = document.getElementById('btn-reset');
+  const progressSec   = document.getElementById('progress-section');
+  const progressBar   = document.getElementById('progress-bar');
+  const statusText    = document.getElementById('status-text');
+  const spinner       = document.getElementById('spinner');
+  const resultsCard   = document.getElementById('results-card');
+  const resultsBody   = document.getElementById('results-body');
+  const countBadge    = document.getElementById('count-badge');
+
+  let selectedFile = null;
+
+  // Drag & drop
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type === 'application/pdf') setFile(f);
+  });
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+  function setFile(f) {
+    selectedFile = f;
+    fileNameDisp.textContent = f.name;
+    fileNameDisp.hidden = false;
+    dropLabel.textContent = 'File selected';
+    dropSub.hidden = true;
+    btnPreview.disabled = false;
+    btnReset.hidden = false;
+    resultsCard.hidden = true;
+    resultsBody.innerHTML = '';
+    btnDownload.disabled = true;
+  }
+
+  function setStatus(msg, loading = true) {
+    progressSec.hidden = false;
+    statusText.textContent = msg;
+    spinner.hidden = !loading;
+  }
+
+  function setProgress(pct) {
+    progressBar.style.width = pct + '%';
+  }
+
+  // Preview
+  btnPreview.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    btnPreview.disabled = true;
+    btnDownload.disabled = true;
+    setStatus('Reading PDF and extracting REGN. NOs…');
+    setProgress(30);
+
+    const fd = new FormData();
+    fd.append('pdf', selectedFile);
+
+    try {
+      const res = await fetch('/preview', { method: 'POST', body: fd });
+      setProgress(80);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      renderResults(data);
+      setProgress(100);
+      setStatus(`Found ${data.length} student pages.`, false);
+      spinner.hidden = true;
+      btnDownload.disabled = false;
+    } catch (err) {
+      setStatus('Error: ' + err.message, false);
+      spinner.hidden = true;
+    } finally {
+      btnPreview.disabled = false;
+    }
+  });
+
+  function renderResults(rows) {
+    resultsBody.innerHTML = '';
+    rows.forEach(r => {
+      const isFallback = r.regn_no.startsWith('PAGE_');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="td-page">${r.page}</td>
+        <td class="td-regn">${r.regn_no}</td>
+        <td class="td-name">${r.name}</td>
+        <td class="td-file">${r.regn_no}.pdf</td>
+        <td>${isFallback
+          ? '<span class="pill-warn">No REGN found</span>'
+          : '<span class="pill-ok">Ready</span>'}</td>
+      `;
+      resultsBody.appendChild(tr);
+    });
+    countBadge.textContent = rows.length + ' pages';
+    resultsCard.hidden = false;
+  }
+
+  // Download
+  btnDownload.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    btnDownload.disabled = true;
+    setStatus('Splitting pages and building ZIP…');
+    setProgress(20);
+
+    const fd = new FormData();
+    fd.append('pdf', selectedFile);
+
+    try {
+      const res = await fetch('/download', { method: 'POST', body: fd });
+      setProgress(90);
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Server error');
+      }
+      const blob = await res.blob();
+      setProgress(100);
+      setStatus('ZIP ready — downloading…', false);
+      spinner.hidden = true;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'admit_cards.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setStatus('Error: ' + err.message, false);
+      spinner.hidden = true;
+    } finally {
+      btnDownload.disabled = false;
+    }
+  });
+
+  // Reset
+  btnReset.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    fileNameDisp.hidden = true;
+    dropLabel.textContent = 'Drop PDF here or click to browse';
+    dropSub.hidden = false;
+    progressSec.hidden = true;
+    progressBar.style.width = '0%';
+    resultsCard.hidden = true;
+    resultsBody.innerHTML = '';
+    btnPreview.disabled = true;
+    btnDownload.disabled = true;
+    btnReset.hidden = true;
+  });
+</script>
+</body>
+</html>
